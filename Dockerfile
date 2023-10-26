@@ -23,7 +23,7 @@ RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
 RUN yarn config set registry https://registry.npm.taobao.org
 
 # 安装 pandora 项目
-RUN git clone https://github.com/pengzhile/pandora.git \
+RUN git clone https://github.com/zhile-io/pandora.git \
     && cd pandora \
     && pip install .
 
