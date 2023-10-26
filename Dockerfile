@@ -8,6 +8,7 @@ WORKDIR /app
 COPY myscript.sh /app/myscript.sh
 
 # 更新系统并安装 curl，bash和 git,cron
+RUN sed -i 's/http:\/\/deb.debian.org/http:\/\/mirrors.aliyun.com/g' /etc/apt/sources.list
 RUN apt-get update && apt-get install -y curl bash git cron lsof
 
 
