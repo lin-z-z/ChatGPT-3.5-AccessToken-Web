@@ -8,7 +8,6 @@ WORKDIR /app
 COPY myscript.sh /app/myscript.sh
 
 # 更新系统并安装 curl，bash和 git,cron
-RUN sed -i 's/http:\/\/deb.debian.org/http:\/\/mirrors.aliyun.com/g' /etc/apt/sources.list
 RUN apt-get update && apt-get install -y curl bash git cron lsof
 
 
@@ -23,9 +22,9 @@ RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
 RUN yarn config set registry https://registry.npm.taobao.org
 
 # 安装 pandora 项目
-RUN git clone https://github.com/zhile-io/pandora.git \
+RUN git clone https://github.com/pengzhile/pandora.git \
     && cd pandora \
-    && pip install .
+    && pip install -i https://mirrors.aliyun.com/pypi/simple/ .
 
 # 下载和安装项目
 RUN git clone https://github.com/lin-z-z/ChatGPT-3.5-AccessToken-Web.git \
