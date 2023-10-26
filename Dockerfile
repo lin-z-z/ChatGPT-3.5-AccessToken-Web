@@ -29,8 +29,8 @@ RUN git clone https://github.com/pengzhile/pandora.git \
 # 下载和安装项目
 RUN git clone https://github.com/lin-z-z/ChatGPT-3.5-AccessToken-Web.git \
     && cd ChatGPT-3.5-AccessToken-Web \
-    && git fetch origin develop \
-    && git checkout -b develop origin/develop \
+    && git fetch \
+    && git checkout develop \
     && yarn install \
     && yarn build 
 
