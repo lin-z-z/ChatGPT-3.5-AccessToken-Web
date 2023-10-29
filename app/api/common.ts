@@ -1,28 +1,27 @@
-import { NextRequest } from "next/server";
-import { v4 as uuidv4 } from "uuid";
-const OPENAI_URL = "api.openai.com";
-const DEFAULT_PROTOCOL = "https";
-const PROTOCOL = process.env.PROTOCOL ?? DEFAULT_PROTOCOL;
-const BASE_URL = process.env.BASE_URL ?? OPENAI_URL;
+import { NextRequest, NextResponse } from "next/server";
 
-type SendDataType = {
-  prompt: any;
-  message_id: string;
-  parent_message_id: string;
-  model: string;
-  timezone_offset_min: number;
-  // 添加一个可选的 conversation_id 属性
-  conversation_id?: string;
-};
+export const OPENAI_URL = "api.openai.com";
+const DEFAULT_PROTOCOL = "https";
+const PROTOCOL = process.env.PROTOCOL || DEFAULT_PROTOCOL;
+const BASE_URL = process.env.BASE_URL || OPENAI_URL;
+const DISABLE_GPT4 = !!process.env.DISABLE_GPT4;
 
 export async function requestOpenai(req: NextRequest) {
-  const apiKey = req.headers.get("token");
-  const openaiPath = req.headers.get("path");
+  const controller = new AbortController();
+  const authValue = req.headers.get("Authorization") ?? "";
+  const openaiPath = `${req.nextUrl.pathname}${req.nextUrl.search}`.replaceAll(
+    "/api/openai/",
+    "",
+  );
 
   let baseUrl = BASE_URL;
 
   if (!baseUrl.startsWith("http")) {
     baseUrl = `${PROTOCOL}://${baseUrl}`;
+  }
+
+  if (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
   }
 
   console.log("[Proxy] ", openaiPath);
@@ -32,97 +31,68 @@ export async function requestOpenai(req: NextRequest) {
     console.log("[Org ID]", process.env.OPENAI_ORG_ID);
   }
 
-  let url = `${baseUrl}/${openaiPath}`;
-  if (openaiPath === "v1/chat/completions") {
-    url = "http://127.0.0.1:8008/api/conversation/talk";
-    // console.log(req.body);
-    const requestBody = await req.json(); // 解析请求体中的 JSON 内容
-    const len = requestBody.messages.length;
-    const model = requestBody.model;
-    let prompt = "";
-    let parent_message_id = req.headers.get("pid");
-    let conversation_id = req.headers.get("cid");
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 10 * 60 * 1000);
 
-    if (model == "gpt-3.5-turbo") {
-      if (parent_message_id == "") {
-        for (let i = 0; i < len; i++) {
-          prompt = prompt + requestBody.messages[i].content + "\n";
-        }
-      } else {
-        prompt = requestBody.messages[len - 1].content;
-      }
-    } else {
-      prompt = requestBody.messages[len - 1].content;
-    }
+  const fetchUrl = `${baseUrl}/${openaiPath}`;
+  const fetchOptions: RequestInit = {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      Authorization: authValue,
+      ...(process.env.OPENAI_ORG_ID && {
+        "OpenAI-Organization": process.env.OPENAI_ORG_ID,
+      }),
+    },
+    method: req.method,
+    body: req.body,
+    // to fix #2485: https://stackoverflow.com/questions/55920957/cloudflare-worker-typeerror-one-time-use-body
+    redirect: "manual",
+    // @ts-ignore
+    duplex: "half",
+    signal: controller.signal,
+  };
 
-    if (parent_message_id === "") {
-      parent_message_id = uuidv4();
-    }
-    const message_id = uuidv4();
-    let senddata: SendDataType = {
-      prompt: prompt,
-      message_id: message_id,
-      parent_message_id: parent_message_id,
-      model: "text-davinci-002-render-sha",
-      timezone_offset_min: -480,
-    };
+  // #1815 try to refuse gpt4 request
+  if (DISABLE_GPT4 && req.body) {
+    try {
+      const clonedBody = await req.text();
+      fetchOptions.body = clonedBody;
 
-    if (conversation_id != "") {
-      senddata.conversation_id = conversation_id;
-    }
+      const jsonBody = JSON.parse(clonedBody);
 
-    return fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: req.method,
-      body: JSON.stringify(senddata),
-    });
-  } else if (openaiPath === "api/conversation/gen_title") {
-    const conversation_id = req.headers.get("cid");
-    const message_id = req.headers.get("pid");
-    let senddata = {
-      message_id: message_id,
-      model: "text-davinci-002-render-sha",
-    };
-    let titlejson = {
-      object: "chat.completion",
-      model: "gpt-3.5-turbo",
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: "assistant",
-            content: "",
+      if ((jsonBody?.model ?? "").includes("gpt-4")) {
+        return NextResponse.json(
+          {
+            error: true,
+            message: "you are not allowed to use gpt-4 model",
           },
-          finish_reason: "stop",
-        },
-      ],
-      usage: {
-        prompt_tokens: 360,
-        completion_tokens: 7,
-        total_tokens: 367,
-      },
-    };
-    url = "http://127.0.0.1:8008/api/conversation/gen_title/" + conversation_id;
-    return fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: req.method,
-      body: JSON.stringify(senddata),
+          {
+            status: 403,
+          },
+        );
+      }
+    } catch (e) {
+      console.error("[OpenAI] gpt4 filter", e);
+    }
+  }
+
+  try {
+    const res = await fetch(fetchUrl, fetchOptions);
+
+    // to prevent browser prompt for credentials
+    const newHeaders = new Headers(res.headers);
+    newHeaders.delete("www-authenticate");
+    // to disable nginx buffering
+    newHeaders.set("X-Accel-Buffering", "no");
+
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: newHeaders,
     });
-  } else {
-    return fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        ...(process.env.OPENAI_ORG_ID && {
-          "OpenAI-Organization": process.env.OPENAI_ORG_ID,
-        }),
-      },
-      method: req.method,
-      body: req.body,
-    });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

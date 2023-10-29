@@ -1,50 +1,62 @@
-# 使用 Python 3.9 的官方镜像作为基础镜像
-FROM python:3.9-buster
+FROM node:18-alpine AS base
 
-# 设置工作目录为 /app
+FROM base AS deps
+
+RUN apk add --no-cache libc6-compat
+
 WORKDIR /app
 
-#复制脚本
-COPY myscript.sh /app/myscript.sh
-RUN sed -i 's/http:\/\/deb.debian.org/http:\/\/mirrors.aliyun.com/g' /etc/apt/sources.list
-# 更新系统并安装 curl，bash和 git,cron
-RUN apt-get update && apt-get install -y curl bash git cron lsof
+COPY package.json yarn.lock ./
 
+RUN yarn config set registry 'https://registry.npmmirror.com/'
+RUN yarn install
 
-# 安装 Node.js 和 yarn
-RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install --global yarn
+FROM base AS builder
 
+RUN apk update && apk add --no-cache git
 
+ENV OPENAI_API_KEY=""
+ENV CODE=""
 
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
-RUN yarn config set registry https://registry.npm.taobao.org
+RUN yarn build
 
-# 安装 pandora 项目
-RUN git clone https://github.com/zhile-io/pandora.git \
-    && cd pandora \
-    && pip install -i https://mirrors.aliyun.com/pypi/simple/ .
+FROM base AS runner
+WORKDIR /app
 
-# 下载和安装项目
-RUN git clone https://github.com/lin-z-z/ChatGPT-3.5-AccessToken-Web.git \
-    && cd ChatGPT-3.5-AccessToken-Web \
-    && git fetch \
-    && git checkout develop \
-    && yarn install \
-    && yarn build 
+RUN apk add proxychains-ng
 
-#设置定时任务
-RUN crontab -l | { cat; echo "0 0 */10 * * bash /app/myscript.sh"; } | crontab -
+ENV PROXY_URL=""
+ENV OPENAI_API_KEY=""
+ENV CODE=""
 
-# 开放端口3000
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/.next/server ./.next/server
+
 EXPOSE 3000
-# 开放端口8008
-EXPOSE 8008
 
-# 环境变量
-ENV username=Youruser password=Yourpassowrd CODE=YourCode
-
-CMD sh -c 'echo "${username},${password}" > /app/ChatGPT-3.5-AccessToken-Web/user.txt && cron && sh myscript.sh && cd /app/ChatGPT-3.5-AccessToken-Web && yarn start'
-
-
+CMD if [ -n "$PROXY_URL" ]; then \
+        export HOSTNAME="127.0.0.1"; \
+        protocol=$(echo $PROXY_URL | cut -d: -f1); \
+        host=$(echo $PROXY_URL | cut -d/ -f3 | cut -d: -f1); \
+        port=$(echo $PROXY_URL | cut -d: -f3); \
+        conf=/etc/proxychains.conf; \
+        echo "strict_chain" > $conf; \
+        echo "proxy_dns" >> $conf; \
+        echo "remote_dns_subnet 224" >> $conf; \
+        echo "tcp_read_time_out 15000" >> $conf; \
+        echo "tcp_connect_time_out 8000" >> $conf; \
+        echo "localnet 127.0.0.0/255.0.0.0" >> $conf; \
+        echo "localnet ::1/128" >> $conf; \
+        echo "[ProxyList]" >> $conf; \
+        echo "$protocol $host $port" >> $conf; \
+        cat /etc/proxychains.conf; \
+        proxychains -f $conf node server.js; \
+    else \
+        node server.js; \
+    fi
