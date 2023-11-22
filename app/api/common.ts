@@ -34,7 +34,7 @@ export async function requestOpenai(req: NextRequest) {
 
   let url = `${baseUrl}/${openaiPath}`;
   if (openaiPath === "v1/chat/completions") {
-    url = "http://127.0.0.1:8008/api/conversation/talk";
+    url = "http://10.0.8.8:8181/api/conversation/talk";
     // console.log(req.body);
     const requestBody = await req.json(); // 解析请求体中的 JSON 内容
     const len = requestBody.messages.length;
@@ -104,7 +104,7 @@ export async function requestOpenai(req: NextRequest) {
         total_tokens: 367,
       },
     };
-    url = "http://127.0.0.1:8008/api/conversation/gen_title/" + conversation_id;
+    url = "http://10.0.8.8:8181/api/conversation/gen_title/" + conversation_id;
     return fetch(url, {
       headers: {
         "Content-Type": "application/json",

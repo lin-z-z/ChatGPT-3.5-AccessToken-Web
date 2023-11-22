@@ -17,17 +17,10 @@ RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
     && npm install --global yarn
 
 
-
-
 RUN yarn config set registry https://registry.npm.taobao.org
 
-# 安装 pandora 项目
-RUN git clone https://github.com/pengzhile/pandora.git \
-    && cd pandora \
-    && pip install .
-
 # 下载和安装项目
-RUN git clone https://github.com/xueandyue/ChatGPT-3.5-AccessToken-Web.git \
+RUN git clone https://github.com/lin-z-z/ChatGPT-3.5-AccessToken-Web.git \
     && cd ChatGPT-3.5-AccessToken-Web \
     && yarn install \
     && yarn build 
@@ -37,8 +30,6 @@ RUN crontab -l | { cat; echo "0 0 */10 * * bash /app/myscript.sh"; } | crontab -
 
 # 开放端口3000
 EXPOSE 3000
-# 开放端口8008
-EXPOSE 8008
 
 # 环境变量
 ENV username=Youruser password=Yourpassowrd CODE=YourCode
